@@ -47,14 +47,25 @@ library(RColorBrewer)
 setwd("C:/Users/TimBo/Downloads/R docs and scripts/ComplaintClust/NYC_zipcodes")
 NYC = readShapePoly('ZIP_CODE_040114.shp')
 
-zipcolors = data.frame(zip = NYC$ZIPCODE, color = 0)
+zipcolors = data.frame(zip = NYC$ZIPCODE, color = NA)
 for(i in 1:nrow(zipcolors)){
   if(zipcolors[i,1] %in% zipcodes){
     zipcolors[i,2] = cluster$cluster[which(zipcodes == zipcolors[i,1])]
   }
 }
+zipcolors$clusters = ifelse(zipcolors$color == 'NA', NA, paste0('Cluster ', zipcolors$color))
+
 colors = brewer.pal(4, 'Dark2')
 plot(NYC, col=colors[zipcolors$color])
-title(paste ("NYC Zip Codes Clustered by Complaints"))
+title("NYC Zip Codes Clustered by Complaints")
+legend('topleft', legend=names(table(zipcolors$clusters)), fill = names(table(colors[zipcolors$color])), cex = 0.8, bty = "n")
 
-cluster$centers
+
+sort(cluster$centers[1,], decreasing=T)[1:5]
+sort(cluster$centers[2,], decreasing=T)[1:5]
+sort(cluster$centers[3,], decreasing=T)[1:5]
+sort(cluster$centers[4,], decreasing=T)[1:5]
+
+
+#First world problems
+#Noise, air quality, broken muni-meter,

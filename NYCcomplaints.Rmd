@@ -1,38 +1,63 @@
 ---
-title: "Clustering NYC's Zip Codes by Complaints"
+title: "First World Problems: A Clustering of NYC's Zipcodes by 311 Complaints"
 author: "Timothy J. Schmeier, PhD"
 date: "Wednesday, April 08, 2015"
 output: html_document
 ---
+##Introduction
 
-NYC's 311 data has been explored, summarized, and mapped countless times before. It is a very rich data set which includes timestamped categorized complaints, geo coordinates, service agencies, and co. This data set having been mined so often before it was difficult to 
+NYC's 311 data has been explored, summarized, and mapped countless times by statisticians, bloggers, and civic hackers. It has even been the subject of numerous news articles and online magazines. Slate Tech Magazine called NYC's 311 data "A big data gold mine." Undoubtedly, it is because of the data is extraordinarily rich, inbound calls are time-stamped, categorized, given spatial coordinates, and assigned to a responsible government department. Although large numbers of people have explored this data set before, to my knowledge, not a single investigator asked a question that seemed fundamental to the study of this dataset: Do a number of these neighborhoods act similarity? From which neighborhoods do they differ, and how? In short, is there any underlying structure to this data? Can neighborhoods be grouped by their 311 calls, and what can we learn about these neighborhoods by classifying them in this way?
+
+Specifically, this investigation will:
+
+1. reveal the underlying structure of this dataset
+2. use this structural information to group NYC's zipcodes into four classes, and 
+3. provide insight into the problems most often faced by New Yorkers in each class
 
 ### Data
 NYC's 311 Data: https://data.cityofnewyork.us/Social-Services/2014-NYC/c9is-sbit
+
 NYC's Zip Code shapefiles: https://data.cityofnewyork.us/Business/Zip-Code-Boundaries/i8iw-xf4u
-```{r}
-setwd("C:/Users/TimBo/Downloads")
-NYC311 = read.csv('2014_NYC.csv', header=T)
 
+^\*^NYC's 311 data was filtered to include only complaints made within NYC and during the 2014 calendar year
 
+##Data Preparation
+First, the data set had to be cleaned. Identical complaints were prepared for aggregation by making the case and punctuation uniform, removing the 's' from words that were coded as plurals, and binning similar complaints. The zipcodes also needed to be standardized (some were coded as 9 digit zipcodes) and other complaints did not included a zipcode. These complaints were excluded. Finally, the data was aggregated by complaint type and zipcode.
+
+```{r, echo=FALSE}
+setwd("C:/Users/TimBo/Downloads/R docs and scripts/ComplaintClust")
+```
+```{r, warning=FALSE, message=FALSE}
 library(plyr)
 library(dplyr)
-NYC311$Complaint.Type = tolower(NYC311$Complaint.Type) #repeated complaints, different case
-NYC311$Complaint.Type = gsub('s$', '', NYC311$Complaint.Type) #repeated complaints, some plural
-NYC311$Incident.Zip = gsub('-[[:digit:]]{4}$', '', NYC311$Incident.Zip) #some 6 and some 10 digit zips
-NYC311$Complaint.Type = gsub('paint - plaster', 'paint/plaster', NYC311$Complaint.Type) #repeated complaints, different punct
-NYC311$Complaint.Type = gsub('general construction', 'construction', NYC311$Complaint.Type) #merging differently coded complaints
+NYC311 = read.csv('2014_NYC.csv', header=T)
+
+#Clean data and make complaints uniform
+NYC311$Complaint.Type = tolower(NYC311$Complaint.Type) 
+NYC311$Complaint.Type = gsub('s$', '', NYC311$Complaint.Type) 
+NYC311$Incident.Zip = gsub('-[[:digit:]]{4}$', '', NYC311$Incident.Zip)
+NYC311$Complaint.Type = gsub('paint - plaster', 'paint/plaster', NYC311$Complaint.Type)
+NYC311$Complaint.Type = gsub('general construction', 'construction', NYC311$Complaint.Type)
 NYC311$Complaint.Type = gsub('nonconst', 'construction', NYC311$Complaint.Type)
-NYC311$Complaint.Type = gsub('street sign - [[:alpha:]]', 'street sign', NYC311$Complaint.Type) #merge all street sign complaints
-NYC311$Complaint.Type = gsub('fire alarm - .+','fire alarm', NYC311$Complaint.Type) #merge all fire alarm complaints
-
-idx = grepl('[[:digit:]]{5}', NYC311$Incident.Zip) #remove complaints with no zipcode
+NYC311$Complaint.Type = gsub('street sign - [[:alpha:]]+', 'street sign', NYC311$Complaint.Type)
+NYC311$Complaint.Type = gsub('fire alarm - .+','fire alarm', NYC311$Complaint.Type)
+idx = grepl('[[:digit:]]{5}', NYC311$Incident.Zip)
 NYC311clean = NYC311[idx,]
-NYC311byZip = ddply(NYC311clean, .(Incident.Zip, Complaint.Type), count) #counts by zip and complaint 
-```{r}
 
-```{r}
-library(tidyr) #prepare data for pca
+#Counts of each complaint by zipcode
+NYC311byZip = ddply(NYC311clean, .(Incident.Zip, Complaint.Type), count)
+```
+
+##Data Exploration and Structure
+After cleaning the data, it was prepared for Exploratory Factor Analysis (EFA). EFA was used to explore the underlying structure of the data set to understand if any latent variables might explain the variance seen in multiple predictors. The results show four factors have multiple variable loadings >0.9 indicating there are four latent variables which cause residents to make similar complaints.
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyr)
+library(psych)
+library(reshape2)
+library(ggplot2)
+
+#Prepare data for PCA/EFA
 raw = spread(NYC311byZip, Complaint.Type, n)
 raw[is.na(raw)] = 0
 counts = which(colSums(raw[,-1]) < 10)
@@ -41,40 +66,77 @@ raw = raw[,-1]
 raw = raw[,-counts]
 processed = scale(raw, center=T, scale=T)
 
-library(psych)
-pca = principal(processed, nfactor=6, covar=F)
-pca$loadings
-```{r}
+pca = principal(processed, nfactor=5, covar=F)
 
+#Visualize EFA
+loadings = as.data.frame(pca$loadings[,1:5])
+loadings$complaint.type = rownames(loadings)
+loadings_m = melt(loadings, id='complaint.type')
 
-```{r}
+ggplot(loadings_m, aes(x=variable, y=complaint.type, label = round(value,2), fill=value))+
+      geom_tile()+xlab('Factor')+ylab('Complaint Description')+geom_text(size=0.75, alpha = 0.8)+
+      scale_fill_continuous(low='yellow', high='red', name='Loadings')+
+      theme(axis.text.y = element_text(size=3))
+
+```
+
+Given that there are four factors driving the variation in the data the complaints were clustered with four centers. Then the cluster assignments were visualized in Eigenspace to inspect the results. As shown below, the clusters are fairly well separated and the cluster assignments appear reasonable. 
+
+```{r, warning=FALSE, message=FALSE}
+#Cluster data
 set.seed(400)
 cluster=kmeans(processed, 4)
 
+#Visualize cluster results
 library(scatterplot3d)
 library(rgl)
 NYCPCs = pca$scores
-scatterplot3d(NYCPCs[,2], NYCPCs[,1], NYCPCs[,3], color=cluster$cluster)
-plot3d(NYCPCs[,2], NYCPCs[,1], NYCPCs[,3], col=cluster$cluster)
-```{r}
+scatterplot3d(NYCPCs[,3], NYCPCs[,1], NYCPCs[,2], color=cluster$cluster, xlab='', ylab='', zlab='', 
+              tick.marks=FALSE, main='Cluster Assignments')
 
-```{r}
+table(cluster$cluster)
+```
+
+The cluster assignments were then viewed on a map of NYC. As shown in the map, Cluster 1 contains mid and lower Manhattan, Cluster 2 is the largest cluster by area and includes large swaths of Staten Island, Brooklyn, and Queens. Cluster 3 includes Harlem, the Bronx, and areas near the boundary separating Queens and Brooklyn, and Cluster 4 is outer NYC, including areas adjacent to Westchester and Long Island and areas along the NYC coastline.
+
+Interestingly, many zipcodes in NYC had no complaints but the map (see below) did not have any unassigned areas due to missing values. I quickly realized these zipcodes do not have any complaints because they are assigned to buildings, not areas of NYC. For example, the World Trade Center, the Empire State Building, and the Saks Fifth Ave shoe department, all have their own "vanity zip."
+
+
+```{r, warning=FALSE, message=FALSE}
 library(maptools)
 library(RColorBrewer)
-setwd("C:/Users/TimBo/Downloads/NYC_zipcodes")
+
+#Assign cluster colors to zipcodes
 NYC = readShapePoly('ZIP_CODE_040114.shp')
 
-zipcolors = data.frame(zip = NYC$ZIPCODE, color = 0)
+zipcolors = data.frame(zip = NYC$ZIPCODE, color = NA)
 for(i in 1:nrow(zipcolors)){
   if(zipcolors[i,1] %in% zipcodes){
     zipcolors[i,2] = cluster$cluster[which(zipcodes == zipcolors[i,1])]
   }
 }
+zipcolors$clusters = ifelse(zipcolors$color == 'NA', NA, paste0('Cluster ', zipcolors$color))
+
+sum(is.na(zipcolors$clusters))
+
+#Visualize clusters on NYC map
 colors = brewer.pal(4, 'Dark2')
 plot(NYC, col=colors[zipcolors$color])
-title(paste ("NYC Complaints clustered by Zip Codes"))
-```{r}
+title("NYC, by Complaints")
+legend('topleft', legend=names(table(zipcolors$clusters)), fill = names(table(colors[zipcolors$color])), cex = 0.8, bty = "n")
+```
+
+##Conclusions
+Since the data is centered and scaled before clustering the cluster centers are Z-scores, which are straightforward to interpret as compared to the overall mean. As can be seen in the output below Manhattan (Cluster 1) complaints are largely about taxis, noise, air quality, and broken muni-meters; true first world problems. Typical New Yorkers (Cluster 2) complain less frequently on average (about everything) than the residents in the other clusters. Suburbanites, or New York City residents living on the fringes of NYC often adjacent to city suburbs (Cluster 3) complain about suburban problems, damaged trees, snow, abandonded vehicles, etc. The poorer residents in NYC (Cluster 4) complain about basic necessities most often, plumbing, heating, and electric problems. Even in a city of First World City, Third World Problems continue to persist and thrive.
+
 
 ```{r}
-cluster$centers
-```{r}
+#Manhattan
+sort(cluster$centers[1,], decreasing=T)[1:5]
+#Typical New Yorker
+sort(cluster$centers[2,], decreasing=T)[1:5]
+#Suburbanites
+sort(cluster$centers[3,], decreasing=T)[1:5]
+#The Third World
+sort(cluster$centers[4,], decreasing=T)[1:5]
+```
